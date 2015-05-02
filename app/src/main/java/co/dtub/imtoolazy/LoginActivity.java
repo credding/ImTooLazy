@@ -1,20 +1,23 @@
 package co.dtub.imtoolazy;
 
-import android.app.Activity;
+import android.content.Context;
 import android.content.Intent;
 import android.content.IntentSender;
+import android.content.SharedPreferences;
 import android.os.Bundle;
 import android.support.v4.app.FragmentActivity;
-import android.view.Menu;
-import android.view.MenuItem;
 import android.view.View;
 import android.widget.Button;
+import android.widget.EditText;
 import android.widget.Toast;
 
+import com.facebook.AccessToken;
 import com.facebook.CallbackManager;
 import com.facebook.FacebookCallback;
 import com.facebook.FacebookException;
 import com.facebook.FacebookSdk;
+import com.facebook.GraphRequest;
+import com.facebook.GraphResponse;
 import com.facebook.login.LoginManager;
 import com.facebook.login.LoginResult;
 import com.facebook.login.widget.LoginButton;
@@ -23,7 +26,15 @@ import com.google.android.gms.common.SignInButton;
 import com.google.android.gms.common.api.GoogleApiClient;
 import com.google.android.gms.plus.Plus;
 
-public class MainActivity extends Activity implements
+import org.json.JSONException;
+import org.json.JSONObject;
+
+import java.io.IOException;
+
+import co.dtub.imtoolazy.backend.ITLBackend;
+import co.dtub.imtoolazy.backend.model.SimpleResponse;
+
+public class LoginActivity extends FragmentActivity implements
         GoogleApiClient.ConnectionCallbacks,
         GoogleApiClient.OnConnectionFailedListener {
 
@@ -35,6 +46,9 @@ public class MainActivity extends Activity implements
     private GoogleApiClient mGoogleApiClient;
     private boolean mSignInClicked;
     private boolean mIntentInProgress;
+
+    EditText emailField;
+    EditText passwordField;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -53,7 +67,11 @@ public class MainActivity extends Activity implements
                 .build();
 
         // Build UI
-        setContentView(R.layout.activity_main);
+        setContentView(R.layout.activity_login);
+
+        // Text Fields
+        emailField = (EditText) findViewById(R.id.email);
+        passwordField = (EditText) findViewById(R.id.password);
 
         // Get Buttons
         Button loginButton = (Button) findViewById(R.id.login_button);
@@ -90,7 +108,24 @@ public class MainActivity extends Activity implements
     /* NATIVE LOGIN AND SIGN UP */
 
     private void loginNative(View v) {
+        final String email = emailField.getText().toString();
+        final String password = passwordField.getText().toString();
+        BackendApi.sendApiRequest(new BackendApi.Request<SimpleResponse>() {
 
+            @Override
+            public SimpleResponse execute(ITLBackend api) throws IOException {
+                return api.accountService().loginWithEmail(email, password).execute();
+            }
+
+            @Override
+            public void onResult(SimpleResponse result) {
+                if (result.getSuccess()) {
+                    finishLogin(result.getData());
+                } else {
+                    Toast.makeText(getApplicationContext(), result.getData(), Toast.LENGTH_SHORT).show();
+                }
+            }
+        });
     }
     private void signUpNative(View v) {
 
@@ -101,11 +136,37 @@ public class MainActivity extends Activity implements
     private FacebookCallback<LoginResult> loginFacebook = new FacebookCallback<LoginResult>() {
         @Override
         public void onSuccess(LoginResult loginResult) {
-            Toast.makeText(
-                    getApplicationContext(),
-                    loginResult.getAccessToken().getUserId(),
-                    Toast.LENGTH_SHORT).show();
-            LoginManager.getInstance().logOut();
+
+            // Get Facebook ID
+            final AccessToken token = loginResult.getAccessToken();
+            final String facebookId = token.getUserId();
+
+            BackendApi.sendApiRequest(new BackendApi.Request<SimpleResponse>() {
+                @Override
+                public SimpleResponse execute(ITLBackend api) throws IOException {
+                    return api.accountService().loginWithFacebook(facebookId).execute();
+                }
+
+                @Override
+                public void onResult(SimpleResponse result) {
+                    if (result.getSuccess()) {
+                        finishLogin(result.getData());
+                    } else {
+                        GraphRequest.newMeRequest(token, new GraphRequest.GraphJSONObjectCallback() {
+                            @Override
+                            public void onCompleted(JSONObject jsonObject, GraphResponse graphResponse) {
+                                String email = null;
+                                try {
+                                    email = jsonObject.getString("email");
+                                } catch (JSONException e) {}
+
+                            }
+                        });
+                    }
+                    // Log out of Facebook
+                    LoginManager.getInstance().logOut();
+                }
+            });
         }
         @Override
         public void onCancel() {}
@@ -127,14 +188,31 @@ public class MainActivity extends Activity implements
     @Override
     public void onConnected(Bundle bundle) {
         mSignInClicked = false;
-        Toast.makeText(
-                getApplicationContext(),
-                Plus.PeopleApi.getCurrentPerson(mGoogleApiClient).getId(),
-                Toast.LENGTH_SHORT).show();
-        if (mGoogleApiClient.isConnected()) {
-            Plus.AccountApi.clearDefaultAccount(mGoogleApiClient);
-            mGoogleApiClient.disconnect();
-        }
+
+        // Get Google ID
+        final String id = Plus.PeopleApi.getCurrentPerson(mGoogleApiClient).getId();
+
+        BackendApi.sendApiRequest(new BackendApi.Request<SimpleResponse>() {
+            @Override
+            public SimpleResponse execute(ITLBackend api) throws IOException {
+                return api.accountService().loginWithGoogle(id).execute();
+            }
+
+            @Override
+            public void onResult(SimpleResponse result) {
+                if (result.getSuccess()) {
+                    finishLogin(result.getData());
+                } else {
+                    String email = Plus.AccountApi.getAccountName(mGoogleApiClient);
+
+                }
+                // Log out of Google
+                if (mGoogleApiClient.isConnected()) {
+                    Plus.AccountApi.clearDefaultAccount(mGoogleApiClient);
+                    mGoogleApiClient.disconnect();
+                }
+            }
+        });
     }
     @Override
     public void onConnectionSuspended(int i) {
@@ -159,26 +237,11 @@ public class MainActivity extends Activity implements
         }
     }
 
-    @Override
-    public boolean onCreateOptionsMenu(Menu menu) {
-        // Inflate the menu; this adds items to the action bar if it is present.
-        getMenuInflater().inflate(R.menu.menu_main, menu);
-        return true;
-    }
-
-    @Override
-    public boolean onOptionsItemSelected(MenuItem item) {
-        // Handle action bar item clicks here. The action bar will
-        // automatically handle clicks on the Home/Up button, so long
-        // as you specify a parent activity in AndroidManifest.xml.
-        int id = item.getItemId();
-
-        //noinspection SimplifiableIfStatement
-        if (id == R.id.action_settings) {
-            return true;
-        }
-
-        return super.onOptionsItemSelected(item);
+    private void finishLogin(String accountId) {
+        SharedPreferences preferences = getPreferences(Context.MODE_PRIVATE);
+        SharedPreferences.Editor editor = preferences.edit();
+        editor.putLong("accountId", Long.valueOf(accountId));
+        editor.apply();
     }
 
     @Override

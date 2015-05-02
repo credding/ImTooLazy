@@ -3,12 +3,13 @@
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    tools:context="co.dtub.imtoolazy.MainActivity">
+    tools:context="co.dtub.imtoolazy.LoginActivity">
 
     <TextView
         android:id="@+id/title"
         android:text="Login"
         android:layout_centerHorizontal="true"
+        android:layout_marginTop="20dp"
         android:layout_marginBottom="20dp"
         android:textSize="32sp"
         android:textColor="#333"
@@ -21,14 +22,16 @@
         android:layout_below="@id/title"
         android:layout_width="300dp"
         android:layout_height="wrap_content"
-        android:hint="Email"/>
+        android:hint="Email"
+        android:inputType="textEmailAddress" />
     <EditText
         android:id="@+id/password"
         android:layout_centerHorizontal="true"
         android:layout_below="@id/email"
         android:layout_width="300dp"
         android:layout_height="wrap_content"
-        android:hint="Password"/>
+        android:hint="Password"
+        android:inputType="textPassword" />
 
     <Button
         android:layout_below="@id/password"
